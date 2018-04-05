@@ -73,7 +73,7 @@ def loop():
             fan = int(min(fan, 255))
             ser.write(bytes([fan, pump]))
             if i % 10000 == 0:
-                print("W:", water_ntc, "P:", pc_temps, "F:", fan, "U:", pump)
+                print("W:", water_ntc, "T:", pc_temps, "F:", fan, "P:", pump)
                 sys.stdout.flush()
             i += 1
 loop()
