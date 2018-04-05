@@ -1,0 +1,11 @@
+[Unit]
+Description=Watercooling fan / pump ctrl
+
+[Service]
+Type=simple
+User=fa2k
+ExecStart=/home/fa2k/anaconda3/bin/python /home/fa2k/git/ctrloop/loop.py
+Restart=on-failure # or always, on-abort, etc
+
+[Install]
+WantedBy=multi-user.target
