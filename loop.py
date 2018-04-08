@@ -43,36 +43,77 @@ def get_temps():
     return [cpu, nvi, ati]
 
 
-WATER_NTC_TARGET = 185
-FAN_MIN = 102
-FAN_FAC = (122 - 102) / (WATER_NTC_TARGET - 175)
-COMP_TGT_TEMP = [70, 44, 72]
-COMP_CRITFAN_TEMP = [70, 60, 88]
+class PidLoop(object):
+    def __init__(self, prop, inte, deri, intlowclip=None):
+        self.prop = prop
+        self.inte = inte
+        self.deri = deri
+        self.intlowclip = intlowclip
+        self.last_dif = None
+        self.integral = 0
+
+    def next(self, dif):
+        if self.intlowclip is None:
+            self.integral = self.integral + dif
+        else:
+            self.integral = max(self.intlowclip, self.integral + dif)
+        if self.last_dif is not None:
+            deriv = dif - self.last_dif
+        else:
+            deriv = 0
+        self.last_dif = dif
+        return self.prop*dif + self.inte*self.integral + self.deri*deriv
+
+
 PUMP_MIN = 102
-PUMP_FAC = 2
+FAN_MIN = 102
+
+CF_FAC = 5
+
+COMPONENT_CRITFAN_TEMP = [60, 60, 88] 
+WATER_NTC_SETPOINT = 195
+fan_pid = PidLoop(
+        prop=4,
+        inte=0.02,
+        deri=0.0,
+        intlowclip=-100)
+
+COMPONENT_SET_TEMP = [58, 46, 77]
+pump_pid = PidLoop(
+        prop=4.0,
+        inte=0.05,
+        deri=0.0,
+        intlowclip=-20
+        )
 
 def loop():
     with serial.Serial('/dev/ttyUSB0', timeout=3) as ser:
         i=0
+        temp_int = 0.0
+        temp_last = None
+        water_int = 0.0
+        water_last = None
         while True:
             while ser.read() != b'!':
                 pass
+
             water_ntc = int.from_bytes(ser.read(2), byteorder='big')
-            # 192
             pc_temps = get_temps()
-            ser.write(b'F')
-            pump = min(sum(
-                    int(max(0, (pct - ctt) * PUMP_FAC))
-                    for pct, ctt in zip(pc_temps, COMP_TGT_TEMP)
-                    ) + PUMP_MIN, 255)
-            fan = max(WATER_NTC_TARGET - water_ntc, 0)*FAN_FAC + FAN_MIN
+
+            fan = fan_pid.next(WATER_NTC_SETPOINT - water_ntc)
             fan += sum(
-                    int(max(0, (pct - cct) * PUMP_FAC))
-                    for pct, cct in zip(pc_temps, COMP_CRITFAN_TEMP)
+                    int(max(0, (pct - cct) * CF_FAC))
+                    for pct, cct in zip(pc_temps, COMPONENT_CRITFAN_TEMP)
                     )
-            fan = int(min(fan, 255))
-            ser.write(bytes([fan, pump]))
-            if i % 10000 == 0:
+            fan = int(min(max(fan, 0) + FAN_MIN, 255))
+
+            temp_max_diff = max(
+                    pct - ctt
+                    for pct, ctt in zip(pc_temps, COMPONENT_SET_TEMP)
+                    )
+            pump = int(min(255, PUMP_MIN + max(0, pump_pid.next(temp_max_diff))))
+            ser.write(b'F' + bytes([fan, pump]))
+            if i % 100 == 0:
                 print("W:", water_ntc, "T:", pc_temps, "F:", fan, "P:", pump)
                 sys.stdout.flush()
             i += 1
