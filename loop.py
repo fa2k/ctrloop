@@ -74,14 +74,14 @@ COMPONENT_CRITFAN_TEMP = [60, 60, 88]
 WATER_NTC_SETPOINT = 195
 fan_pid = PidLoop(
         prop=4,
-        inte=0.02,
+        inte=0.013,
         deri=0.0,
         intlowclip=-100)
 
-COMPONENT_SET_TEMP = [58, 46, 77]
+COMPONENT_SET_TEMP = [61, 46, 77]
 pump_pid = PidLoop(
         prop=4.0,
-        inte=0.05,
+        inte=0.03,
         deri=0.0,
         intlowclip=-20
         )
