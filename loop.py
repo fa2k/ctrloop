@@ -114,7 +114,8 @@ def loop():
             pump = int(min(255, PUMP_MIN + max(0, pump_pid.next(temp_max_diff))))
             ser.write(b'F' + bytes([fan, pump]))
             if i % 100 == 0:
-                print("W:", water_ntc, "T:", pc_temps, "F:", fan, "P:", pump)
+                print("W:", water_ntc, "T:", [int(t) for t in pc_temps],
+                        "F:", fan, "P:", pump)
                 sys.stdout.flush()
             i += 1
 loop()
