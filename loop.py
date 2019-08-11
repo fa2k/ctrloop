@@ -3,6 +3,8 @@ import re
 import sys
 import serial
 
+SERIAL_DEVICE = '/dev/ttyUSB0'
+
 def get_nvidia_temps():
     data = subprocess.check_output(
             ['nvidia-smi', '-q', '-d', 'temperature']).decode('utf-8')
@@ -43,20 +45,27 @@ def get_temps():
     return [cpu, nvi, ati]
 
 
+def clip_point(val, lowclip, highclip):
+    if lowclip is not None:
+        val = max(lowclip, val)
+    if highclip is not None:
+        val = min(highclip, val)
+    return val
+
+
 class PidLoop(object):
-    def __init__(self, prop, inte, deri, intlowclip=None):
+    def __init__(self, prop, inte, deri, intlowclip=None, inthighclip=None):
         self.prop = prop
         self.inte = inte
         self.deri = deri
         self.intlowclip = intlowclip
+        self.inthighclip = inthighclip
         self.last_dif = None
         self.integral = 0
 
     def next(self, dif):
-        if self.intlowclip is None:
-            self.integral = self.integral + dif
-        else:
-            self.integral = max(self.intlowclip, self.integral + dif)
+        self.integral = clip_point(self.integral + dif, 
+                self.intlowclip, self.inthighclip)
         if self.last_dif is not None:
             deriv = dif - self.last_dif
         else:
@@ -64,30 +73,49 @@ class PidLoop(object):
         self.last_dif = dif
         return self.prop*dif + self.inte*self.integral + self.deri*deriv
 
+class ExcludeRange:
+    def __init__(self, low, high):
+        self.low = low
+        self.high = high
+        self.current = None
 
-PUMP_MIN = 102
-FAN_MIN = 102
+    def transform(self, value):
+        if (self.current == "high" and value > self.low) or value > self.high:
+            self.current = "high"
+            return max(self.high, value)
+        else:
+            self.current = "low"
+            return min(self.low, value)
 
-CF_FAC = 5
 
-COMPONENT_CRITFAN_TEMP = [60, 60, 88] 
-WATER_NTC_SETPOINT = 195
+# Pump min spec = 20 % (51/255)
+PUMP_MIN = 80
+FAN_MIN = 90
+
+CF_FAC = 25
+
+COMPONENT_CRITFAN_TEMP = [70, 60, 85] 
+#WATER_NTC_SETPOINT = 193
+WATER_NTC_SETPOINT = 188
 fan_pid = PidLoop(
-        prop=4,
-        inte=0.013,
+        prop=6.0,
+        inte=0.08,
         deri=0.0,
-        intlowclip=-100)
+        intlowclip=-100,
+        inthighclip=2700)
 
-COMPONENT_SET_TEMP = [61, 46, 77]
+COMPONENT_SET_TEMP = [70, 52, 77]
 pump_pid = PidLoop(
         prop=4.0,
-        inte=0.03,
+        inte=0.04,
         deri=0.0,
-        intlowclip=-20
+        intlowclip=-20,
+        inthighclip=5000
         )
+pump_tf = ExcludeRange(120, 200)
 
 def loop():
-    with serial.Serial('/dev/ttyUSB0', timeout=3) as ser:
+    with serial.Serial(SERIAL_DEVICE, timeout=3) as ser:
         i=0
         temp_int = 0.0
         temp_last = None
@@ -112,6 +140,7 @@ def loop():
                     for pct, ctt in zip(pc_temps, COMPONENT_SET_TEMP)
                     )
             pump = int(min(255, PUMP_MIN + max(0, pump_pid.next(temp_max_diff))))
+            pump = pump_tf.transform(pump)
             ser.write(b'F' + bytes([fan, pump]))
             if i % 100 == 0:
                 print("W:", water_ntc, "T:", [int(t) for t in pc_temps],
