@@ -5,43 +5,30 @@ import serial
 
 SERIAL_DEVICE = '/dev/ttyUSB0'
 
-def get_nvidia_temps():
+CPU_ATI_SENSORS = ["coretemp.temp1", "amdgpu.temp1"]
+
+def get_nvidia_temp():
     data = subprocess.check_output(
             ['nvidia-smi', '-q', '-d', 'temperature']).decode('utf-8')
     for line in data.splitlines():
         m = re.match(r" *GPU Current Temp *: (\d+) ", line)
         if m:
-            yield int(m.group(1))
+            return int(m.group(1))
+    else:
+        raise RuntimeError("No temperature info")
 
 def get_cpu_ati_temp():
-    data = subprocess.check_output(['sensors']).decode('utf-8')
-    cpu = False
-    ati = False
-    ati_maxval = 0
-    cpu_maxval = 0
-    for line in data.splitlines():
-        if line.startswith('coretemp-'):
-            cpu = True
-            maxval = 0
-        elif line.startswith('amdgpu-'):
-            ati = True
-            maxval = 0
-        elif not line.strip():
-            cpu = False
-            ati = False
-        else:
-            m = re.match(r".*: *\+([\d.]+)", line)
-            if m:
-                if ati:
-                    ati_maxval = max(ati_maxval, float(m.group(1)))
-                if cpu:
-                    cpu_maxval = max(cpu_maxval, float(m.group(1)))
-    return [cpu_maxval, ati_maxval]
+    data = subprocess.check_output(['./gettemp/gettemp'] + CPU_ATI_SENSORS).decode('utf-8')
+    cpu, ati = [float(v) for v in data.splitlines()]
+    return [cpu, ati]
 
 
 def get_temps():
     cpu, ati = get_cpu_ati_temp()
-    nvi = next(iter(get_nvidia_temps()))
+    try:
+        nvi = get_nvidia_temp()
+    except:
+        nvi = 80
     return [cpu, nvi, ati]
 
 
